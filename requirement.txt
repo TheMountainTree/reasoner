@@ -11,8 +11,32 @@ opencv-python==4.9.0.80
 pillow==10.2.0
 numpy==1.26.4
 xformers==0.0.24          # 可选，显著降低 SAM-2 显存
+scipy                     # 新增：用于点云处理 (KDTree)
+matplotlib                # 新增：用于可视化分析
+# flash-attn              # 推荐：加速 Florence-2/SAM2 推理 (需根据具体环境手动安装)
 
 # ===== 3. SAM-2（官方暂未发 PyPI，需源码安装） =====
-# 安装方式（已写进 README，可自动化）：
+# 注意：本项目代码中包含 reasoner/sam2 模块。若需独立安装或更新：
 # git clone https://github.com/facebookresearch/segment-anything-2.git
 # cd segment-anything-2 && pip install -e .
+
+# ===== 4. 必需模型文件 (Models) =====
+# 运行前请确保下载以下模型，并在 reasoner/pics_segmentation_dual.py 中修改对应路径
+#
+# A. Florence-2-large (VLM)
+#    - HuggingFace ID: microsoft/Florence-2-large
+#    - 代码变量: text_encoder_type1 (Line 734)
+#
+# B. SAM 2 (Segment Anything Model 2)
+#    - Checkpoint: sam2.1_hiera_large.pt (需从 Meta 官网或仓库下载)
+#    - Config: sam2.1_hiera_l.yaml (通常包含在 sam2 源码的 configs 目录中)
+#    - 代码变量: SAM2_CHECKPOINT (Line 736), SAM2_CONFIG (Line 737)
+
+# ===== 5. 数据文件 (Data) =====
+# A. 双目相机外参标定文件 (.txt)
+#    - 内容: 4x4 变换矩阵
+#    - 代码变量: calib_path (Line 753)
+#
+# B. 输入图像
+#    - 双目 RGB 图像 + 双目 Depth 图像 (需对齐)
+#    - 代码变量: image_path2 (Line 777)
