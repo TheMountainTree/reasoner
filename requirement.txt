@@ -1,0 +1,18 @@
+# ===== 1. PyTorch 2.2 + CUDA 12.1（兼容 13.0 驱动） =====
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch==2.2.0+cu121
+torchvision==0.17.0+cu121
+
+# ===== 2. 其余核心包 =====
+supervision==0.20.0
+open3d==0.18.0
+transformers==4.40.0
+opencv-python==4.9.0.80
+pillow==10.2.0
+numpy==1.26.4
+xformers==0.0.24          # 可选，显著降低 SAM-2 显存
+
+# ===== 3. SAM-2（官方暂未发 PyPI，需源码安装） =====
+# 安装方式（已写进 README，可自动化）：
+# git clone https://github.com/facebookresearch/segment-anything-2.git
+# cd segment-anything-2 && pip install -e .
