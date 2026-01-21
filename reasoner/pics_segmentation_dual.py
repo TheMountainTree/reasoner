@@ -611,7 +611,7 @@ def open_vocabulary_detection_and_segmentation(
     florence2_processor,
     sam2_predictor,
     image_path,
-    task_prompt="<OPEN_VOCABULARY_DETECTION>",
+    task_prompt="<OD>",
     text_input=None,
     visualize=False,
     output_dir=None
@@ -724,7 +724,6 @@ def open_vocab_per_class_detection(
     逐类调用 open-vocabulary detection
     返回格式与 grounded_sam2_detection 完全一致
     """
-
     all_boxes = []
     all_masks = []
     all_class_names = []
@@ -956,28 +955,44 @@ def merge_pcd_list(obj_list, voxel_size):
 
 def find_connected_components(nodes, edges):
     """
-    标准的连通分量寻找算法 (BFS)
+    连通分量寻找算法
+    在给定的图(graph)在中寻找所有连通的分量
+    输入:
+        nodes: 所有节点的列表或集合
+        edges: 边的列表,通常是元组(u, v)的形式,表和四节点u和v相连
+    输出:
+        components: 一个包含多个集合(set)的列表。每个集合代表一个连通分量，包含该分量内的所有节点
     """
+    # 构建邻接表(Adjacency List)
+    # 初始化一个字典adj,为每个节点准备一个空集合
+    # 遍历输入的egdes,构建无向图。注意这里是双向的
     adj = {i: set() for i in nodes}
     for u, v in edges:
         adj[u].add(v)
         adj[v].add(u)
     
+    # 初始化遍历状态
+    # visited: 用于记录归类到某个连通分量中的节点，防止重复处理
+    # components: 最终用于存储结果的列表
     visited = set()
     components = []
     
+    # 遍历节点并搜索
+    # 遍历每一个节点 i
     for i in nodes:
+        # 节点没被访问
         if i not in visited:
-            component = set()
-            stack = [i]
-            visited.add(i)
+            # 把所有通过当前节点 i 能连到的节点加入到component集合中
+            component = set() # 创建一个空集合，用于存储当前连通分量中的所有节点
+            stack = [i] # 初始化栈，放入起始节点 i
+            visited.add(i) # 标记起始节点 i 为已访问，防止重复处理
             while stack:
-                node = stack.pop()
-                component.add(node)
-                for neighbor in adj[node]:
+                node = stack.pop() # 从栈中取出一个节点
+                component.add(node) # 将其加入当前的组件集合中
+                for neighbor in adj[node]: # adj 是邻接表，adj[node] 存储了与 node 相连的所有邻居
                     if neighbor not in visited:
-                        visited.add(neighbor)
-                        stack.append(neighbor)
+                        visited.add(neighbor) # 标记邻居为已访问
+                        stack.append(neighbor) # 将邻居加入栈中，以便下一轮循环继续探索它的邻居
             components.append(component)
     return components
 
@@ -989,17 +1004,27 @@ def clustering_objects(object_list,
                        use_volume=True, 
                        min_size_ratio=0.15):
     """
-    核心聚类函数 (改进版)：
+    核心聚类函数:
+    对3D点云物体片段进行后处理聚类(合并)
     Logic: SameClass AND (SizeRatio OK) AND ((Dist<T) OR (OBB_Dist<T) OR (Fitness>T) OR (VolSim>T))
+    输入
+        object_list: 输入物体片段列表(包括点云、名称、质心等信息)
+        dist_thr: 质心距离阈值
+        vol_sim_thr: 体积相似度阈值
+        fitness_thr: 形状相似度阈值
+        obb_dist_thr: OBB边缘距离阈值
+        min_size_ratio: 最小尺寸比例阈值
     """
-    # [关键修复] 如果输入列表为空，直接返回空列表
+    # 如果输入列表为空，直接返回空列表
     if not object_list:
         return []
 
+    # 构建graph，将每个物体视为一个节点(Node)
     n = len(object_list)
     nodes = list(range(n))
     edges = []
     
+    # 遍历每一对物体(i和j)，计算两两之间的关系
     for i in range(n):
         for j in range(i + 1, n):
             obj1 = object_list[i]
@@ -1055,10 +1080,10 @@ def clustering_objects(object_list,
                 # print(f"    Edge {i}-{j} ({name1}): Volume Pass ({vol_sim:.2f})")
                 
             if is_connected:
-                edges.append((i, j))
+                edges.append((i, j)) # 判断连接则添加一个边
                 
     # --- 5. 连通分量合并 ---
-    components = find_connected_components(nodes, edges)
+    components = find_connected_components(nodes, edges) # 找到所有连通子图（例如：A连B，B连C，那么A、B、C就是一组）
     
     merged_results = []
     for comp_ids in components:
@@ -1070,7 +1095,7 @@ def clustering_objects(object_list,
     return merged_results
 
 # ==========================================
-#    适用于：depth 已 aligned 到 RGB，但分辨率可能不同
+#    相机使用depth_registration=true参数来保证depth和color分辨率、光轴和坐标系对齐
 # ==========================================
 def reconstruct_pcd_from_depth(
         rgb_img, 
@@ -1141,6 +1166,16 @@ def reconstruct_pcd_from_depth(
 
 
 def safe_centroid(pcd):
+    """
+    安全地计算点云质心。
+    将点云数据转换为numpy数组后计算其几何中心(均值)。
+    如果点云为空,则返回None以避免运行时错误。
+    Args:
+        pcd (open3d.geometry.PointCloud): 输入的Open3D点云对象。
+    Returns:
+        np.ndarray or None: 若点云非空,返回形状为(3,)的质心坐标数组[x, y, z];
+                            若点云为空,返回None。
+    """
     pts = np.asarray(pcd.points)
     if pts.size == 0:
         return None
@@ -1148,6 +1183,32 @@ def safe_centroid(pcd):
 
 
 def build_object_list(det_res, depth_img, intrinsics, T_depth2color=None, transform=None, suffix=""):
+    """
+    根据 2D 检测结果和深度图构建 3D 物体列表。
+    该函数遍历检测结果中的每一个掩膜，将其反投影为 3D 点云，并进行过滤、
+    变换（如多相机对齐）、下采样以及基础几何属性（质心、体积）的计算。
+    Args:
+        det_res (dict): 目标检测结果字典，需包含以下键:
+            - "masks": 分割掩膜列表 (List[np.array])
+            - "class_names": 对应的类别名称列表 (List[str])
+            - "image": 原图 (用于纹理映射，视 reconstruct_pcd_from_depth 实现而定)
+        depth_img (np.array): 对应的深度图像。
+        intrinsics (o3d.camera.PinholeCameraIntrinsic 或 np.array): 相机内参矩阵。
+        T_depth2color (np.array, optional): 深度相机到彩色相机的变换矩阵。默认为 None。
+        transform (np.array, optional): 额外的刚体变换矩阵 (4x4)。
+            通常用于将当前相机的坐标系变换到主相机或世界坐标系 (例如 Cam1 -> Cam2)。默认为 None。
+        suffix (str, optional): 生成物体 ID 时使用的后缀字符串。默认为 ""。
+    Returns:
+        list[dict]: 处理后的物体对象列表。每个元素为一个字典，包含以下键:
+            - "pcd" (o3d.geometry.PointCloud): 处理后的 Open3D 点云对象。
+            - "name" (str): 物体类别名称。
+            - "centroid" (np.array): 物体 3D 质心坐标 [x, y, z]。
+            - "volume" (float): 物体的定向包围盒 (OBB) 体积。如果计算失败则为 0.0。
+            - "id_raw" (str): 原始 ID 标识，格式为 "{name}_{suffix}"。
+    Global Constants Used:
+        - MIN_POINTS_INSTANCE (int): 判定为有效物体的最小点数阈值。
+        - VOXEL_INSTANCE (float): 用于点云下采样的体素大小。
+    """
     obj_list = []
     # 重建
     for m, name in zip(det_res["masks"], det_res["class_names"]):
@@ -1218,7 +1279,7 @@ florence2_processor = AutoProcessor.from_pretrained(FLORENCE2_MODEL_ID, trust_re
 sam2_model = build_sam2(SAM2_CONFIG, SAM2_CHECKPOINT, device=device)
 sam2_predictor = SAM2ImagePredictor(sam2_model)
 
-
+# 相机内参配置
 elapsed_time = time.time() - start_time
 print(f"运行到此步骤耗时: {elapsed_time:.4f} 秒")
 print("配置参数")
@@ -1271,8 +1332,7 @@ OPEN_VOCAB_CLASSES = ["harmmer", "bottle", "phone", "book", "wrench", "screwdriv
 # ===========================
 # 0) 全局参数（替换原 MAX_DEPTH）
 # ===========================
-# 深度截断阈值（米）：原来 1.0 会造成大批量丢点，建议先放宽
-MAX_DEPTH = 3.0   # 先用 5m；如果你想不截断，改成 None
+MAX_DEPTH = 3.0   # 深度截断阈值（米）；如果你想不截断，改成 None
 MIN_POINTS_INSTANCE = 800   # 每个实例最少点数（太小基本是噪声/空mask）
 VOXEL_INSTANCE = 0.002
 VOXEL_FULL = 0.005
@@ -1282,14 +1342,35 @@ VOXEL_FULL = 0.005
 # ==========================================
 t_step_start = time.time()
 print(f"\n====== [1/7] Running Inference (Florence2 + SAM2) ======")
-det_res1 = open_vocab_per_class_detection(
+# 词表逐一查询
+# det_res1 = open_vocab_per_class_detection(
+#     florence2_model, florence2_processor, sam2_predictor, image_path1, OPEN_VOCAB_CLASSES,
+#     output_dir=os.path.join(OUTPUT_DIR, "vis_cam1")
+# )
+# det_res2 = open_vocab_per_class_detection(
+#     florence2_model, florence2_processor, sam2_predictor, image_path2, OPEN_VOCAB_CLASSES,
+#     output_dir=os.path.join(OUTPUT_DIR, "vis_cam2")
+# )
+
+# 基于prompt的此表一次查询
+det_res1 = merged_open_vocabulary_detection(
     florence2_model, florence2_processor, sam2_predictor, image_path1, OPEN_VOCAB_CLASSES,
     output_dir=os.path.join(OUTPUT_DIR, "vis_cam1")
 )
-det_res2 = open_vocab_per_class_detection(
+det_res2 = merged_open_vocabulary_detection(
     florence2_model, florence2_processor, sam2_predictor, image_path2, OPEN_VOCAB_CLASSES,
     output_dir=os.path.join(OUTPUT_DIR, "vis_cam2")
 )
+
+# 基于开放词汇表的查询
+# det_res1 = grounded_sam2_detection(
+#     florence2_model, florence2_processor, sam2_predictor, image_path1, text_input=None, visualize=True, 
+#     output_dir=os.path.join(OUTPUT_DIR, "vis_cam1")
+# )
+# det_res2 = grounded_sam2_detection(
+#     florence2_model, florence2_processor, sam2_predictor, image_path2, text_input=None, visualize=True, 
+#     output_dir=os.path.join(OUTPUT_DIR, "vis_cam2")
+# )
 save_instance_masks(det_res1, os.path.join(OUTPUT_DIR, "instance_masks_1"), prefix="cam1")
 save_instance_masks(det_res2, os.path.join(OUTPUT_DIR, "instance_masks_2"), prefix="cam2")
 print(f"-- Inference Time: {time.time() - t_step_start:.4f}s")
@@ -1383,7 +1464,7 @@ if merged_full is not None: merged_full = merged_full.voxel_down_sample(VOXEL_FU
 print(f"-- Full Scene Reconstruction Time: {time.time() - t_step_start:.4f}s")
 t_step_start = time.time()
 print(f"\n====== [7/7] Saving Results ======")
-pcd_seg_dir = os.path.join(OUTPUT_DIR, "pcd_seg_graph_v2")
+pcd_seg_dir = os.path.join(OUTPUT_DIR, "pcd_seg")
 os.makedirs(pcd_seg_dir, exist_ok=True)
 
 flip_R = o3d.geometry.get_rotation_matrix_from_xyz((np.pi, 0, 0)) # 翻转以适应Open3D Viewer
