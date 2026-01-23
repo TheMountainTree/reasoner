@@ -460,7 +460,9 @@ def visualize_bounding_boxes(object_clouds, output_dir="output"):
         view_ctl.set_up([0, 0, 1])  # Z轴向上
 
         # 渲染并保存图像
-        vis.run()
+        # vis.run()
+        vis.poll_events()
+        vis.update_renderer()
 
         # 保存截图
         image_path = os.path.join(output_dir, f"bbox_{obj_info['class_name']}_{i}.png")
@@ -496,7 +498,9 @@ def visualize_bounding_boxes(object_clouds, output_dir="output"):
     view_ctl.set_up([0, 0, 1])  # Z轴向上
 
     # 渲染并保存图像
-    vis.run()
+    # vis.run()
+    vis.poll_events()
+    vis.update_renderer()
 
     # 保存截图
     global_image_path = os.path.join(output_dir, "global_bbox_visualization.png")
@@ -578,6 +582,9 @@ def save_instance_masks(
     masks = detection_results["masks"]
     class_names = detection_results["class_names"]
 
+    image_rgb = detection_results["image"]
+    image_bgr = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
+
     # 用于给同类物体编号
     class_counter = {}
 
@@ -602,7 +609,15 @@ def save_instance_masks(
         npy_path = os.path.join(output_dir, f"{prefix}_{base_name}.npy")
         np.save(npy_path, mask)
 
-        print(f"[Saved] {base_name}: {png_path}, {npy_path}")
+        # ---------- 保存为 RGB Cutout (彩色图，用于关键点生成) ----------
+        # 创建一个纯黑的背景
+        color_cutout = np.zeros_like(image_bgr)
+        # 将原图中mask为true的部分复制到纯黑背景上
+        color_cutout[mask] = image_bgr[mask]
+
+        color_path = os.path.join(output_dir, f"{prefix}_{base_name}_color.png")
+        cv2.imwrite(color_path, color_cutout)
+        print(f"[Saved] {base_name}: Mask->{png_path}, Color->{color_path}") 
 
 
 # Open-Vocabulary Detection + Segmentation
@@ -834,6 +849,50 @@ def merged_open_vocabulary_detection(
 
     if masks.ndim == 4:
         masks = masks.squeeze(1)
+
+    if scores.ndim > 1: scores = scores.flatten()
+
+    if visualize and output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+        img_bgr = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
+        
+        for i in range(len(input_boxes)):
+            # 1. 提取单个检测对象的数据 (保持维度)
+            box = input_boxes[i:i+1]
+            mask = masks[i:i+1]
+            class_id = np.array([i]) # 或者使用 class_ids[i:i+1]
+            score = scores[i:i+1] if scores is not None else np.array([1.0])
+            label = class_names[i]
+
+            # 2. 构建单个对象的 Detections
+            single_detection = sv.Detections(
+                xyxy=box,
+                mask=mask.astype(bool),
+                class_id=class_id,
+                confidence=score
+            )
+
+            # 3. 绘制标注 (基于原始图像的拷贝)
+            annotated_frame = img_bgr.copy()
+
+            # Box
+            box_annotator = sv.BoxAnnotator()
+            annotated_frame = box_annotator.annotate(scene=annotated_frame, detections=single_detection)
+
+            # Label
+            label_annotator = sv.LabelAnnotator()
+            annotated_frame = label_annotator.annotate(
+                scene=annotated_frame, detections=single_detection, labels=[label]
+            )
+
+            # Mask
+            mask_annotator = sv.MaskAnnotator()
+            annotated_frame = mask_annotator.annotate(scene=annotated_frame, detections=single_detection)
+
+            # 4. 保存单张图片
+            save_name = f"detection_{i}_{label}.jpg"
+            cv2.imwrite(os.path.join(output_dir, save_name), annotated_frame)
+            print(f"Saved visualization: {save_name}")
 
     return {
         "image": image_np,
@@ -1355,11 +1414,11 @@ print(f"\n====== [1/7] Running Inference (Florence2 + SAM2) ======")
 # 基于prompt的此表一次查询
 det_res1 = merged_open_vocabulary_detection(
     florence2_model, florence2_processor, sam2_predictor, image_path1, OPEN_VOCAB_CLASSES,
-    output_dir=os.path.join(OUTPUT_DIR, "vis_cam1")
+    visualize=True, output_dir=os.path.join(OUTPUT_DIR, "vis_cam1")
 )
 det_res2 = merged_open_vocabulary_detection(
     florence2_model, florence2_processor, sam2_predictor, image_path2, OPEN_VOCAB_CLASSES,
-    output_dir=os.path.join(OUTPUT_DIR, "vis_cam2")
+    visualize=True, output_dir=os.path.join(OUTPUT_DIR, "vis_cam2")
 )
 
 # 基于开放词汇表的查询
@@ -1391,7 +1450,7 @@ t_step_start = time.time()
 
 print(f"\n====== [4/7] Step 1: Intra-Camera Merge (Self-Correction) ======")
 # 策略：不看 Volume (use_volume=False)，严苛距离，适中 Fitness
-INTRA_DIST_THR = 0.08      # 8cm
+INTRA_DIST_THR = 0.05      # 8cm 单相机内质心距离阈值
 INTRA_OBB_THR = 0.02       # 2cm OBB 间距 (几乎接触)
 INTRA_FITNESS_THR = 0.35   # 有一定重合
 
@@ -1420,8 +1479,8 @@ print(f"-- Intra-Merge Time: {time.time() - t_step_start:.4f}s")
 t_step_start = time.time()
 print(f"\n====== [5/7] Step 2: Cross-Camera Global Graph Merge ======")
 # 策略：看 Volume，距离放宽
-INTER_DIST_THR = 0.20      # 20cm 质心
-INTER_OBB_THR = 0.05       # 5cm OBB 间距
+INTER_DIST_THR = 0.07      # 20cm 质心,跨相机质心距离阈值
+INTER_OBB_THR = 0.01       # 5cm OBB 间距,相机OBB间距阈值
 INTER_VOL_THR = 0.65       # 体积相似
 INTER_FITNESS_THR = 0.35   # 重合度
 
