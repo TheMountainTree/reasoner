@@ -876,7 +876,8 @@ def merged_open_vocabulary_detection(
 ):
     # 1. 使用更加自然语言的 Prompt 格式
     task_prompt = "<CAPTION_TO_PHRASE_GROUNDING>"
-    text_input = "detect " + ", ".join(class_list) # 变为 "detect cup, bottle, umbrella..."
+    # text_input = "detect " + ", ".join(class_list) # 变为 "detect cup, bottle, umbrella..."
+    text_input = class_list
     
     image = Image.open(image_path).convert("RGB")
     image_np = np.array(image)
@@ -1561,7 +1562,8 @@ if __name__ == "__main__":
     OUTPUT_DIR = os.path.join(SCRIPT_DIR, "output_single")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    OPEN_VOCAB_CLASSES = ["harmmer", "bottle", "phone", "book", "wrench", "screwdriver"]
+    # OPEN_VOCAB_CLASSES = ["harmmer", "bottle", "phone", "book", "wrench", "screwdriver"]
+    OPEN_VOCAB_CLASSES = "harmmer, bottle, phone, book, wrench, screwdriver"
 
     # ===========================
     # 0) 全局参数（替换原 MAX_DEPTH）
